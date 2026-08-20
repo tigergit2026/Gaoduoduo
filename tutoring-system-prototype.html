@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>辅导课程管理系统 - 原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .recharge-hours { color: #dc2626; font-weight: 600; }
+    .tag-status { display: inline-flex; align-items: center; padding: .125rem .5rem; border-radius: 9999px; font-size: .75rem; font-weight: 500; }
+    .status-active { background: #dcfce7; color: #166534; }
+    .status-no-book { background: #fef9c3; color: #854d0e; }
+    .status-ended { background: #f3f4f6; color: #374151; }
+    .locked { background: #f9fafb; color: #9ca3af; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen flex overflow-hidden">
+  <!-- Sidebar -->
+  <aside class="w-64 bg-white border-r flex flex-col">
+    <div class="p-6 border-b">
+      <h1 class="text-lg font-bold text-gray-900">辅导课管理</h1>
+      <p class="text-xs text-gray-500 mt-1">课时充值 · 上课消课</p>
+    </div>
+    <nav class="flex-1 p-4 space-y-2">
+      <button id="nav-dashboard" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 focus:bg-gray-100" onclick="setView('dashboard')">辅导套餐总览</button>
+      <button id="nav-finance'" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 focus:bg-gray-100" onclick="setView('finance')">财务支出待办</button>
+      <button class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed">派单系统（辅导订单已隐藏）</button>
+    </nav>
+    <div class="p-4 border-t text-xs text-gray-500">
+      <div class="mb-2 font-medium text-gray-700">当前角色</div>
+      <select id="roleSelect" class="w-full border rounded px-2 py-1 text-sm" onchange="changeRole(this.value)">
+        <option value="Sales">销售</option>
+        <option value="SalesManager">销售主管</option>
+        <option value="Dispatcher">派单助理</option>
+        <option value="Tutor">助教老师</option>
+        <option value="Linda" selected>Linda</option>
+        <option value="AcademicAffairs">教务老师</option>
+        <option value="Finance">财务</option>
+      </select>
+      <div id="roleHint" class="mt-2 leading-snug"></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="h-16 bg-white border-b flex items-center justify-between px-6">
+      <h2 id="pageTitle" class="font-semibold text-gray-900">辅导套餐总览</h2>
+      <div id="topActions" class="space-x-2"></div>
+    </header>
+
+    <div id="content" class="flex-1 overflow-auto p-6">
+      <!-- dynamic content -->
+    </div>
+  </main>
+
+  <script>
+    const roles = {
+      Sales: { label: '销售', canEdit: false, canConfirm: false, scope: 'all' },
+      SalesManager: { label: '销售主管', canEdit: false, canConfirm: false, scope: 'all' },
+      Dispatcher: { label: '派单助理', canEdit: false, canConfirm: false, scope: 'all' },
+      Tutor: { label: '助教老师', canEdit: true, canConfirm: false, scope: 'all' },
+      Linda: { label: 'Linda', canEdit: true, canConfirm: false, scope: 'all' },
+      AcademicAffairs: { label: '教务老师', canEdit: true, canConfirm: false, scope: 'tutoring_only' },
+      Finance: { label: '财务', canEdit: false, canConfirm: true, scope: 'finance' }
+    };
+
+    let state = {
+      role: 'Linda',
+      view: 'dashboard',
+      selectedPackageId: null,
+      filter: { customer: '', consultant: '', status: '' },
+      packages: [
+        { id: 1, customer: 'ruru', consultant: 'cici', school: 'UNSW', firstRecharge: '2026-06-01', lastClass: '2026-07-30', status: '上课中', tags: '' },
+        { id: 2, customer: 'tom', consultant: 'cici', school: 'USYD', firstRecharge: '2026-07-10', lastClass: '', status: '未约课', tags: '新生' },
+        { id: 3, customer: 'lucy', consultant: 'alex', school: 'UMelb', firstRecharge: '2026-05-20', lastClass: '2026-07-25', status: '结束', tags: '' }
+      ],
+      transactions: [
+        { id: 101, packageId: 1, type: 'recharge', date: '2026-06-01', rechargeAmount: 2000, rechargeHours: 20, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'MATH3821', orderName: 'MATH3821-10h', classLink: '', notes: '首次充值', financeStatus: 'confirmed', locked: true },
+        { id: 102, packageId: 1, type: 'class', date: '2026-06-05', rechargeAmount: 0, rechargeHours: 0, teacherId: 't1', hours: 2, rate: 100, cost: 200, courseCode: 'MATH3821', orderName: '', classLink: 'https://meet...', notes: '', financeStatus: 'confirmed', locked: true },
+        { id: 103, packageId: 1, type: 'class', date: '2026-07-30', rechargeAmount: 0, rechargeHours: 0, teacherId: 't2', hours: 1.5, rate: 120, cost: 180, courseCode: 'MATH3821', orderName: '', classLink: 'https://meet...', notes: '补课', financeStatus: 'pending', locked: false },
+        { id: 201, packageId: 2, type: 'recharge', date: '2026-07-10', rechargeAmount: 1500, rechargeHours: 15, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'ECON2300', orderName: 'ECON2300-15h', classLink: '', notes: '', financeStatus: 'confirmed', locked: true },
+        { id: 301, packageId: 3, type: 'recharge', date: '2026-05-20', rechargeAmount: 1200, rechargeHours: 10, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'ELEC2133', orderName: 'ELEC2133-10h', classLink: '', notes: '', financeStatus: 'confirmed', locked: true },
+        { id: 302, packageId: 3, type: 'class', date: '2026-07-25', rechargeAmount: 0, rechargeHours: 0, teacherId: 't3', hours: 10, rate: 90, cost: 900, courseCode: 'ELEC2133', orderName: '', classLink: 'https://meet...', notes: '课时用完', financeStatus: 'confirmed', locked: true }
+      ]
+    };
+
+    const teachers = {
+      t1: { name: '王老师', rate: 100 },
+      t2: { name: '李老师', rate: 120 },
+      t3: { name: '张老师', rate: 90 }
+    };
+
+    function packageStatus(pid) {
+      const t = packageTotals(pid);
+      if (t.remaining <= 0) return '结束';
+      if (t.consumed > 0) return '上课中';
+      return '未约课';
+    }
+
+    function packageTotals(pid) {
+      const txs = state.transactions.filter(t => t.packageId === pid);
+      const recharged = txs.filter(t => t.type === 'recharge').reduce((s, t) => s + (parseFloat(t.rechargeHours) || 0), 0);
+      const consumed = txs.filter(t => t.type === 'class').reduce((s, t) => s + (parseFloat(t.hours) || 0), 0);
+      const cost = txs.filter(t => t.type === 'class').reduce((s, t) => s + (parseFloat(t.cost) || 0), 0);
+      return { recharged, consumed, remaining: recharged - consumed, cost };
+    }
+
+    function setView(view, pid) {
+      state.view = view;
+      if (pid) state.selectedPackageId = pid;
+      render();
+    }
+
+    function changeRole(role) {
+      state.role = role;
+      if (role === 'Finance') state.view = 'finance';
+      else if (state.view === 'finance' && role !== 'Finance') state.view = 'dashboard';
+      render();
+    }
+
+    function canEdit() {
+      return roles[state.role].canEdit;
+    }
+
+    function render() {
+      updateSidebar();
+      const content = document.getElementById('content');
+      if (state.view === 'dashboard') renderDashboard(content);
+      else if (state.view === 'detail') renderDetail(content, state.selectedPackageId);
+      else if (state.view === 'finance') renderFinance(content);
+    }
+
+    function updateSidebar() {
+      const hint = document.getElementById('roleHint');
+      const r = roles[state.role];
+      let text = `权限：${r.canEdit ? '可编辑' : '只读'}`;
+      if (r.canConfirm) text += ' / 可确认支出';
+      if (r.scope === 'tutoring_only') text += '；仅见辅导订单';
+      hint.textContent = text;
+      document.getElementById('nav-dashboard').classList.toggle('bg-gray-100', state.view === 'dashboard');
+    }
+
+    function statusClass(status) {
+      if (status === '上课中') return 'status-active';
+      if (status === '未约课') return 'status-no-book';
+      return 'status-ended';
+    }
+
+    function renderDashboard(container) {
+      document.getElementById('pageTitle').textContent = '辅导套餐总览';
+      let rows = state.packages;
+      if (state.filter.customer) rows = rows.filter(p => p.customer.includes(state.filter.customer));
+      if (state.filter.consultant) rows = rows.filter(p => p.consultant.includes(state.filter.consultant));
+      if (state.filter.status) rows = rows.filter(p => packageStatus(p.id) === state.filter.status);
+
+      let html = `
+        <div class="bg-white rounded-lg border shadow-sm p-4 mb-4">
+          <div class="flex flex-wrap gap-4">
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">客户</label>
+              <input type="text" value="${state.filter.customer}" oninput="updateFilter('customer', this.value)" class="border rounded px-2 py-1 text-sm" placeholder="搜索客户">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">顾问</label>
+              <input type="text" value="${state.filter.consultant}" oninput="updateFilter('consultant', this.value)" class="border rounded px-2 py-1 text-sm" placeholder="搜索顾问">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">状态</label>
+              <select onchange="updateFilter('status', this.value)" class="border rounded px-2 py-1 text-sm">
+                <option value="">全部</option>
+                <option value="上课中" ${state.filter.status === '上课中' ? 'selected' : ''}>上课中</option>
+                <option value="未约课" ${state.filter.status === '未约课' ? 'selected' : ''}>未约课</option>
+                <option value="结束" ${state.filter.status === '结束' ? 'selected' : ''}>结束</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-lg border shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">学校</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">第一次充值</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">最近上课</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">客户</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">顾问</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">累计充值</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">累计上课</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">剩余课时</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">状态</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">Tag</th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-700">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+      `;
+
+      rows.forEach(p => {
+        const t = packageTotals(p.id);
+        const status = packageStatus(p.id);
+        html += `
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">${p.school}</td>
+            <td class="px-4 py-3">${p.firstRecharge}</td>
+            <td class="px-4 py-3">${p.lastClass || '-'}</td>
+            <td class="px-4 py-3 font-medium">${p.customer}</td>
+            <td class="px-4 py-3">${p.consultant}</td>
+            <td class="px-4 py-3">${t.recharged}</td>
+            <td class="px-4 py-3">${t.consumed}</td>
+            <td class="px-4 py-3 font-semibold ${t.remaining > 0 ? 'text-gray-900' : 'text-red-600'}">${t.remaining}</td>
+            <td class="px-4 py-3"><span class="tag-status ${statusClass(status)}">${status}</span></td>
+            <td class="px-4 py-3 text-gray-500">${p.tags || '-'}</td>
+            <td class="px-4 py-3">
+              <button onclick="setView('detail', ${p.id})" class="text-blue-600 hover:underline text-sm">明细</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table></div>`;
+      container.innerHTML = html;
+    }
+
+    function updateFilter(key, value) {
+      state.filter[key] = value;
+      render();
+    }
+
+    function renderDetail(container, pid) {
+      const p = state.packages.find(x => x.id === pid);
+      if (!p) return setView('dashboard');
+      const t = packageTotals(pid);
+      document.getElementById('pageTitle').textContent = `明细 - ${p.customer} / ${p.school}`;
+
+      const txs = state.transactions.filter(x => x.packageId === pid).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      let html = `
+        <div class="mb-4 flex items-center justify-between">
+          <button onclick="setView('dashboard')" class="text-sm text-gray-600 hover:text-gray-900">&larr; 返回总览</button>
+          <div class="text-sm text-gray-600">剩余课时：<span class="font-bold text-lg text-gray-900">${t.remaining}</span> &nbsp; 累计充值：${t.recharged} &nbsp; 累计上课：${t.consumed}</div>
+        </div>
+      `;
+
+      if (canEdit()) {
+        html += renderAddForm(pid);
+      }
+
+      html += `
+        <div class="bg-white rounded-lg border shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left">顾问</th>
+                <th class="px-4 py-3 text-left">客户</th>
+                <th class="px-4 py-3 text-left">日期</th>
+                <th class="px-4 py-3 text-left">类型</th>
+                <th class="px-4 py-3 text-left">充值金额</th>
+                <th class="px-4 py-3 text-left">课时数</th>
+                <th class="px-4 py-3 text-left">上课老师</th>
+                <th class="px-4 py-3 text-left">老师 Rate</th>
+                <th class="px-4 py-3 text-left">本次费用</th>
+                <th class="px-4 py-3 text-left">剩余课时</th>
+                <th class="px-4 py-3 text-left">Course Code</th>
+                <th class="px-4 py-3 text-left">Order/上课 Link</th>
+                <th class="px-4 py-3 text-left">财务状态</th>
+                <th class="px-4 py-3 text-left">备注</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+      `;
+
+      let running = 0;
+      txs.forEach(tx => {
+        if (tx.type === 'recharge') running += parseFloat(tx.rechargeHours) || 0;
+        else running -= parseFloat(tx.hours) || 0;
+        const lockedClass = tx.locked ? 'locked' : '';
+        const typeLabel = tx.type === 'recharge' ? '充值' : '上课';
+        const hoursDisplay = tx.type === 'recharge'
+          ? `<span class="recharge-hours">+${tx.rechargeHours}</span>`
+          : `-${tx.hours}`;
+        const teacherDisplay = tx.teacherId ? (teachers[tx.teacherId]?.name || tx.teacherId) : '-';
+        const financeLabel = tx.financeStatus === 'confirmed' ? '已确认' : '待确认';
+        html += `
+          <tr class="${lockedClass}">
+            <td class="px-4 py-3">${p.consultant}</td>
+            <td class="px-4 py-3">${p.customer}</td>
+            <td class="px-4 py-3">${tx.date}</td>
+            <td class="px-4 py-3">${typeLabel}</td>
+            <td class="px-4 py-3">${tx.rechargeAmount ? '¥' + tx.rechargeAmount : '-'}</td>
+            <td class="px-4 py-3">${hoursDisplay}</td>
+            <td class="px-4 py-3">${teacherDisplay}</td>
+            <td class="px-4 py-3">${tx.rate || '-'}</td>
+            <td class="px-4 py-3">${tx.cost || '-'}</td>
+            <td class="px-4 py-3 font-medium">${running.toFixed(2)}</td>
+            <td class="px-4 py-3">${tx.courseCode || '-'}</td>
+            <td class="px-4 py-3 max-w-xs truncate" title="${tx.orderName || tx.classLink}">${tx.orderName || tx.classLink || '-'}</td>
+            <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs ${tx.financeStatus === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">${financeLabel}</span></td>
+            <td class="px-4 py-3">${tx.notes || '-'}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table></div>
+        <div class="mt-4 bg-white rounded-lg border shadow-sm p-4 flex justify-end gap-8 text-sm">
+          <div>总课时数：<span class="font-semibold">${t.consumed}</span></div>
+          <div>总费用：<span class="font-semibold">¥${t.cost}</span></div>
+        </div>
+      `;
+      container.innerHTML = html;
+
+      // init form type toggle
+      toggleTxType(pid);
+    }
+
+    function renderAddForm(pid) {
+      return `
+        <div class="bg-white rounded-lg border shadow-sm p-4 mb-6">
+          <h3 class="font-semibold text-gray-900 mb-3">新增流水</h3>
+          <form onsubmit="submitTransaction(event, ${pid})">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">类型</label>
+                <select id="txType-${pid}" onchange="toggleTxType(${pid})" class="w-full border rounded px-2 py-1 text-sm">
+                  <option value="recharge">充值</option>
+                  <option value="class">上课</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">日期</label>
+                <input type="date" id="txDate-${pid}" required class="w-full border rounded px-2 py-1 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">Course Code</label>
+                <input type="text" id="txCourse-${pid}" class="w-full border rounded px-2 py-1 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">Order Name / 上课 Link</label>
+                <input type="text" id="txLink-${pid}" class="w-full border rounded px-2 py-1 text-sm">
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div id="rechargeFields-${pid}">
+                <label class="block text-xs text-gray-500 mb-1">充值金额（¥，选填，可为 0）</label>
+                <input type="number" id="txAmount-${pid}" step="0.01" min="0" value="0" class="w-full border rounded px-2 py-1 text-sm">
+                <label class="block text-xs text-gray-500 mt-2 mb-1">充值课时数（必填）</label>
+                <input type="number" id="txRechargeHours-${pid}" step="0.01" required class="w-full border rounded px-2 py-1 text-sm text-red-600 font-semibold">
+              </div>
+              <div id="classFields-${pid}" class="hidden md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">上课老师</label>
+                  <select id="txTeacher-${pid}" onchange="autoFillRate(${pid})" class="w-full border rounded px-2 py-1 text-sm">
+                    <option value="">选择老师</option>
+                    <option value="t1">王老师（¥100/h）</option>
+                    <option value="t2">李老师（¥120/h）</option>
+                    <option value="t3">张老师（¥90/h）</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">课时数（小时）</label>
+                  <input type="number" id="txHours-${pid}" step="0.01" oninput="calcCost(${pid})" class="w-full border rounded px-2 py-1 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">老师 Rate（固定，自动带出）</label>
+                  <input type="number" id="txRate-${pid}" step="0.01" readonly class="w-full border rounded px-2 py-1 text-sm bg-gray-50">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">本次费用（自动）</label>
+                  <input type="number" id="txCost-${pid}" step="0.01" readonly class="w-full border rounded px-2 py-1 text-sm bg-gray-50">
+                </div>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">备注</label>
+                <input type="text" id="txNotes-${pid}" class="w-full border rounded px-2 py-1 text-sm">
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">保存</button>
+              <div id="txError-${pid}" class="text-red-600 text-sm self-center"></div>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
+    function toggleTxType(pid) {
+      const type = document.getElementById(`txType-${pid}`)?.value || 'recharge';
+      const rf = document.getElementById(`rechargeFields-${pid}`);
+      const cf = document.getElementById(`classFields-${pid}`);
+      if (!rf || !cf) return;
+      if (type === 'recharge') {
+        rf.classList.remove('hidden');
+        cf.classList.add('hidden');
+        cf.querySelectorAll('input,select').forEach(el => el.removeAttribute('required'));
+      } else {
+        rf.classList.add('hidden');
+        cf.classList.remove('hidden');
+        cf.querySelectorAll('input,select').forEach(el => el.setAttribute('required', 'required'));
+        autoFillRate(pid);
+      }
+    }
+
+    function autoFillRate(pid) {
+      const teacherId = document.getElementById(`txTeacher-${pid}`)?.value;
+      const rateInput = document.getElementById(`txRate-${pid}`);
+      if (teacherId && teachers[teacherId]) {
+        rateInput.value = teachers[teacherId].rate;
+      } else {
+        rateInput.value = '';
+      }
+      calcCost(pid);
+    }
+
+    function calcCost(pid) {
+      const hoursInput = document.getElementById(`txHours-${pid}`);
+      const rateInput = document.getElementById(`txRate-${pid}`);
+      const costInput = document.getElementById(`txCost-${pid}`);
+      const h = parseFloat(hoursInput?.value) || 0;
+      const r = parseFloat(rateInput?.value) || 0;
+      if (costInput) costInput.value = (h * r).toFixed(2);
+    }
+
+    function submitTransaction(e, pid) {
+      e.preventDefault();
+      const type = document.getElementById(`txType-${pid}`).value;
+      const date = document.getElementById(`txDate-${pid}`).value;
+      const courseCode = document.getElementById(`txCourse-${pid}`).value;
+      const link = document.getElementById(`txLink-${pid}`).value;
+      const notes = document.getElementById(`txNotes-${pid}`).value;
+      const errorEl = document.getElementById(`txError-${pid}`);
+      errorEl.textContent = '';
+
+      let tx = { id: Date.now(), packageId: pid, type, date, courseCode, orderName: '', classLink: '', notes, locked: false };
+      const p = state.packages.find(x => x.id === pid);
+
+      if (type === 'recharge') {
+        const amount = parseFloat(document.getElementById(`txAmount-${pid}`).value) || 0;
+        const hours = parseFloat(document.getElementById(`txRechargeHours-${pid}`).value);
+        if (!hours || hours <= 0) { errorEl.textContent = '请填写充值课时数'; return; }
+        tx.rechargeAmount = amount;
+        tx.rechargeHours = hours;
+        tx.teacherId = null;
+        tx.hours = 0;
+        tx.rate = 0;
+        tx.cost = 0;
+        tx.financeStatus = 'confirmed'; // 充值直接确认为收入
+        tx.orderName = link;
+        if (!p.firstRecharge || date < p.firstRecharge) p.firstRecharge = date;
+      } else {
+        const teacherId = document.getElementById(`txTeacher-${pid}`).value;
+        const hours = parseFloat(document.getElementById(`txHours-${pid}`).value);
+        const rate = parseFloat(document.getElementById(`txRate-${pid}`).value) || (teachers[teacherId]?.rate || 0);
+        const cost = parseFloat(document.getElementById(`txCost-${pid}`).value) || (hours * rate);
+        if (!teacherId) { errorEl.textContent = '请选择上课老师'; return; }
+        if (!hours) { errorEl.textContent = '请填写课时数'; return; }
+        const t = packageTotals(pid);
+        if (hours > t.remaining) { errorEl.textContent = '剩余课时不足'; return; }
+        tx.rechargeAmount = 0;
+        tx.rechargeHours = 0;
+        tx.teacherId = teacherId;
+        tx.hours = hours;
+        tx.rate = rate;
+        tx.cost = cost;
+        tx.financeStatus = 'pending';
+        tx.classLink = link;
+        p.lastClass = date;
+      }
+
+      state.transactions.push(tx);
+      render();
+    }
+
+    function renderFinance(container) {
+      document.getElementById('pageTitle').textContent = '财务支出待办';
+      const pending = state.transactions.filter(t => t.type === 'class' && t.financeStatus === 'pending');
+      if (!pending.length) {
+        container.innerHTML = '<div class="text-gray-500">暂无可确认的支出待办。</div>';
+        return;
+      }
+      let html = `
+        <div class="bg-white rounded-lg border shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left">客户</th>
+                <th class="px-4 py-3 text-left">学校</th>
+                <th class="px-4 py-3 text-left">日期</th>
+                <th class="px-4 py-3 text-left">上课老师</th>
+                <th class="px-4 py-3 text-left">课时数</th>
+                <th class="px-4 py-3 text-left">老师 Rate</th>
+                <th class="px-4 py-3 text-left">本次费用</th>
+                <th class="px-4 py-3 text-left">Course Code</th>
+                <th class="px-4 py-3 text-left">状态</th>
+                <th class="px-4 py-3 text-left">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+      `;
+      pending.forEach(tx => {
+        const p = state.packages.find(x => x.id === tx.packageId);
+        html += `
+          <tr>
+            <td class="px-4 py-3">${p.customer}</td>
+            <td class="px-4 py-3">${p.school}</td>
+            <td class="px-4 py-3">${tx.date}</td>
+            <td class="px-4 py-3">${teachers[tx.teacherId]?.name || tx.teacherId}</td>
+            <td class="px-4 py-3">${tx.hours}</td>
+            <td class="px-4 py-3">${tx.rate}</td>
+            <td class="px-4 py-3 font-semibold">¥${tx.cost}</td>
+            <td class="px-4 py-3">${tx.courseCode || '-'}</td>
+            <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-700">待确认</span></td>
+            <td class="px-4 py-3">
+              ${roles[state.role].canConfirm ? `<button onclick="confirmExpense(${tx.id})" class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700">确认支出</button>` : '-'}
+            </td>
+          </tr>
+        `;
+      });
+      html += '</tbody></table></div>';
+      container.innerHTML = html;
+    }
+
+    function confirmExpense(txid) {
+      const tx = state.transactions.find(t => t.id === txid);
+      if (!tx) return;
+      tx.financeStatus = 'confirmed';
+      tx.locked = true;
+      // 模拟回写成功后刷新
+      render();
+    }
+
+    // init
+    render();
+  </script>
+</body>
+</html>

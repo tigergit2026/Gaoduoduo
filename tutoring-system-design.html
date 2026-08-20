@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>辅导课程管理系统设计</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .section-title { font-size: 1.5rem; font-weight: 700; margin-top: 2rem; margin-bottom: .75rem; color: #111827; }
+    .subsection-title { font-size: 1.125rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: .5rem; color: #1f2937; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e5e7eb; padding: .5rem .75rem; text-align: left; font-size: .875rem; }
+    th { background: #f9fafb; font-weight: 600; }
+    code { background: #f3f4f6; padding: .125rem .375rem; border-radius: .25rem; font-size: .8125rem; }
+    .diagram { background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; padding: 1rem; overflow-x: auto; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <main class="max-w-5xl mx-auto px-6 py-10 bg-white min-h-screen shadow-sm">
+    <header class="mb-8 border-b pb-6">
+      <h1 class="text-3xl font-bold text-gray-900">辅导课程管理系统设计</h1>
+      <p class="text-gray-500 mt-2">需求梳理、数据模型、流程与实现建议</p>
+    </header>
+
+    <section>
+      <h2 class="section-title">1. 项目目标</h2>
+      <p class="leading-relaxed">为辅导课业务搭建一套独立的课时充值与上课消课管理系统，支持销售、销售主管、派单助理、助教老师、Linda、教务老师等多角色协作，并与财务系统联动：充值同步收入，上课自动产生财务支出待办，支出确认后上课明细锁定。</p>
+    </section>
+
+    <section>
+      <h2 class="section-title">2. 角色与权限</h2>
+      <table>
+        <thead>
+          <tr><th>角色</th><th>可见范围</th><th>主要权限</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>销售 Sales</td><td>辅导系统全部内容</td><td>只读</td><td>可查看客户课时与上课明细</td></tr>
+          <tr><td>销售主管 Sales Manager</td><td>辅导系统全部内容</td><td>只读</td><td>用于监督与报表</td></tr>
+          <tr><td>派单助理 Dispatcher</td><td>辅导系统全部内容</td><td>只读</td><td>在派单系统里默认隐藏辅导订单</td></tr>
+          <tr><td>助教老师 Tutor</td><td>辅导系统全部内容</td><td>编辑</td><td>可新增/修改未锁定的上课与充值记录</td></tr>
+          <tr><td>Linda</td><td>辅导系统全部内容</td><td>编辑</td><td>与助教老师同级管理员</td></tr>
+          <tr><td>教务老师 Academic Affairs</td><td>仅 Order Type = 辅导 的订单</td><td>登记/编辑辅导订单信息</td><td>Writer、客户、Sales 数据共用</td></tr>
+          <tr><td>财务 Finance</td><td>财务系统待办与确认结果</td><td>确认/驳回支出</td><td>确认后回写上课明细为锁定状态</td></tr>
+          <tr><td>系统管理员 Admin</td><td>全部数据、用户、权限说明</td><td>用户 CRUD、辅导数据管理、查看权限矩阵</td><td>用户名 Admin，独立密码登录；最高权限</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">2.1 辅导系统 vs 派单系统权限说明</h3>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+        <li><strong>辅导系统：</strong>面向 Tutor、Linda、销售、销售主管、派单助理、教务老师，展示辅导订单与课时明细。</li>
+        <li><strong>派单系统：</strong>默认订单列表中隐藏 <code>order_type = tutoring</code> 的订单，避免与普通代写/服务订单混在一起；辅导类订单由教务老师在辅导系统中登记。</li>
+      </ul>
+
+      <h3 class="subsection-title">2.2 登录与总管理员</h3>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+        <li><strong>登录方式：</strong>所有用户通过「用户名 + 密码」登录；系统内置总管理员账号 <code>Admin</code>，默认密码 <code>dan8008</code>（首次登录后应强制修改）。</li>
+        <li><strong>总管理员权限：</strong>可新增/修改/删除系统用户并设置登录密码；可管理、修改、删除辅导套餐与流水；可查看权限说明。</li>
+        <li><strong>权限说明可见性：</strong>权限说明页面/入口仅对总管理员可见，其他角色登录后不应在导航中出现。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="section-title">3. 功能模块</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">A. 辅导套餐总览</h4>
+          <p>表格展示客户、顾问、第一次充值、最近上课、累计充值课时、累计上课课时、剩余课时、状态、明细入口、Tag。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">B. 充值登记</h4>
+          <p>按客户/订单录入充值课时数（必填）、充值金额（选填，可为 0）、日期、Course Code、Order Name、备注；红色字体显示充值课时数。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">C. 上课明细登记</h4>
+          <p>录入日期、上课老师、课时数（最小单位分钟，可自动换算）、本次费用、Course Code、上课 Link、备注；老师 Rate 为固定值，维护在老师档案中，选择老师后自动带出。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">D. 财务联动</h4>
+          <p>充值生成收入同步；上课生成支出待办；财务确认支出后上课明细锁定、不可编辑。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">E. 订单过滤（派单系统）</h4>
+          <p>派单系统订单列表默认过滤 <code>order_type = tutoring</code>；教务老师视角仅展示辅导订单。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">F. 搜索与筛选</h4>
+          <p>按顾问、客户、Course Code、Order Name、老师、日期区间筛选；支持组合查询。</p>
+        </div>
+        <div class="border rounded p-4 bg-gray-50">
+          <h4 class="font-semibold mb-2">G. 总管理员系统</h4>
+          <p>用户 CRUD（设置登录密码）、辅导套餐/流水的修改与删除、权限说明查看。仅 Admin 角色可见。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">4. 数据模型</h2>
+
+      <h3 class="subsection-title">4.1 核心实体</h3>
+      <table>
+        <thead>
+          <tr><th>实体</th><th>关键字段</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>User</code></td>
+            <td>id, username, password_hash, name, role, email, active</td>
+            <td>系统用户；role 决定权限；Admin 为独立总管理员</td>
+          </tr>
+          <tr>
+            <td><code>Customer</code></td>
+            <td>id, name, school, contact</td>
+            <td>客户基础信息，与销售、Writer 共用</td>
+          </tr>
+          <tr>
+            <td><code>Teacher</code></td>
+            <td>id, name, default_rate, active</td>
+            <td>老师档案，维护固定 Rate；上课选择老师后自动带出</td>
+          </tr>
+          <tr>
+            <td><code>Order</code></td>
+            <td>id, order_type, customer_id, sales_id, writer_id, status, created_at</td>
+            <td>统一订单表；<code>order_type='tutoring'</code> 为辅导订单</td>
+          </tr>
+          <tr>
+            <td><code>TutoringPackage</code></td>
+            <td>id, order_id, customer_id, consultant_id, school, total_recharged_hours, total_consumed_hours, remaining_hours, first_recharge_at, last_class_at, status, tags</td>
+            <td>每个辅导订单对应一个套餐，汇总课时与状态</td>
+          </tr>
+          <tr>
+            <td><code>Transaction</code></td>
+            <td>id, package_id, type, date, recharge_amount（选填，可为 0）, recharge_hours（充值必填）, teacher_id, hours, teacher_rate（固定值，来自老师档案）, cost, remaining_hours, course_code, order_name, class_link, notes, finance_status, locked, created_by, created_at</td>
+            <td>单行流水：type='recharge' 或 'class'；同一行只能二选一</td>
+          </tr>
+          <tr>
+            <td><code>FinanceRecord</code></td>
+            <td>id, transaction_id, record_type, amount, status, reference_id, created_at, confirmed_at, confirmed_by</td>
+            <td>与财务系统同步的收入/支出记录</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">4.2 实体关系图</h3>
+      <div class="diagram flex justify-center">
+        <svg viewBox="0 0 720 420" width="720" height="420">
+          <rect x="20" y="30" width="110" height="50" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+          <text x="75" y="60" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="600">User</text>
+
+          <rect x="200" y="30" width="110" height="50" rx="4" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+          <text x="255" y="60" text-anchor="middle" font-size="13" fill="#14532d" font-weight="600">Customer</text>
+
+          <rect x="380" y="30" width="110" height="50" rx="4" fill="#faf5ff" stroke="#a855f7" stroke-width="2"/>
+          <text x="435" y="60" text-anchor="middle" font-size="13" fill="#581c87" font-weight="600">Order</text>
+
+          <rect x="560" y="30" width="130" height="50" rx="4" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+          <text x="625" y="60" text-anchor="middle" font-size="13" fill="#7c2d12" font-weight="600">TutoringPackage</text>
+
+          <rect x="240" y="180" width="130" height="60" rx="4" fill="#f0f9ff" stroke="#0ea5e9" stroke-width="2"/>
+          <text x="305" y="205" text-anchor="middle" font-size="13" fill="#0c4a6e" font-weight="600">Transaction</text>
+          <text x="305" y="225" text-anchor="middle" font-size="11" fill="#0c4a6e">recharge / class</text>
+
+          <rect x="480" y="180" width="130" height="60" rx="4" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+          <text x="545" y="205" text-anchor="middle" font-size="13" fill="#7f1d1d" font-weight="600">FinanceRecord</text>
+          <text x="545" y="225" text-anchor="middle" font-size="11" fill="#7f1d1d">income / expense</text>
+
+          <line x1="310" y1="55" x2="380" y2="55" stroke="#9ca3af" stroke-width="1.5"/>
+          <text x="345" y="48" font-size="10" fill="#6b7280">1</text>
+          <text x="365" y="48" font-size="10" fill="#6b7280">*</text>
+
+          <line x1="490" y1="55" x2="560" y2="55" stroke="#9ca3af" stroke-width="1.5"/>
+          <text x="520" y="48" font-size="10" fill="#6b7280">1</text>
+          <text x="545" y="48" font-size="10" fill="#6b7280">1</text>
+
+          <line x1="625" y1="80" x2="625" y2="150" stroke="#9ca3af" stroke-width="1.5"/>
+          <line x1="625" y1="150" x2="370" y2="150" stroke="#9ca3af" stroke-width="1.5"/>
+          <line x1="370" y1="150" x2="370" y2="180" stroke="#9ca3af" stroke-width="1.5"/>
+          <text x="630" y="120" font-size="10" fill="#6b7280">1</text>
+          <text x="380" y="165" font-size="10" fill="#6b7280">*</text>
+
+          <line x1="370" y1="240" x2="480" y2="240" stroke="#9ca3af" stroke-width="1.5"/>
+          <text x="415" y="233" font-size="10" fill="#6b7280">1</text>
+          <text x="455" y="233" font-size="10" fill="#6b7280">0..1</text>
+
+          <line x1="75" y1="80" x2="75" y2="330" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="75" y1="330" x2="240" y2="330" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4"/>
+          <line x1="240" y1="330" x2="240" y2="240" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="85" y="200" font-size="10" fill="#6b7280">创建/确认</text>
+        </svg>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">5. 核心流程</h2>
+
+      <h3 class="subsection-title">5.1 充值登记流程</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 760 160" width="760" height="160">
+          <rect x="20" y="50" width="130" height="50" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+          <text x="85" y="78" text-anchor="middle" font-size="12" fill="#1e3a8a">教务/Linda/Tutor</text>
+
+          <rect x="190" y="50" width="130" height="50" rx="4" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+          <text x="255" y="72" text-anchor="middle" font-size="12" fill="#7c2d12">填写充值信息</text>
+          <text x="255" y="88" text-anchor="middle" font-size="10" fill="#7c2d12">金额/课时/日期</text>
+
+          <rect x="360" y="50" width="130" height="50" rx="4" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+          <text x="425" y="72" text-anchor="middle" font-size="12" fill="#14532d">创建/更新套餐</text>
+          <text x="425" y="88" text-anchor="middle" font-size="10" fill="#14532d">剩余课时 +=</text>
+
+          <rect x="530" y="50" width="130" height="50" rx="4" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+          <text x="595" y="72" text-anchor="middle" font-size="12" fill="#7f1d1d">同步财务系统</text>
+          <text x="595" y="88" text-anchor="middle" font-size="10" fill="#7f1d1d">生成收入记录</text>
+
+          <polygon points="165,75 180,65 180,85" fill="#6b7280"/>
+          <line x1="150" y1="75" x2="180" y2="75" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="335,75 350,65 350,85" fill="#6b7280"/>
+          <line x1="320" y1="75" x2="350" y2="75" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="505,75 520,65 520,85" fill="#6b7280"/>
+          <line x1="490" y1="75" x2="520" y2="75" stroke="#6b7280" stroke-width="1.5"/>
+        </svg>
+      </div>
+
+      <h3 class="subsection-title">5.2 上课明细登记与财务联动流程</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 900 220" width="900" height="220">
+          <rect x="20" y="90" width="120" height="50" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+          <text x="80" y="118" text-anchor="middle" font-size="12" fill="#1e3a8a">教务/Linda/Tutor</text>
+
+          <rect x="180" y="90" width="120" height="50" rx="4" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+          <text x="240" y="112" text-anchor="middle" font-size="12" fill="#7c2d12">填写上课明细</text>
+          <text x="240" y="128" text-anchor="middle" font-size="10" fill="#7c2d12">老师/课时/Rate</text>
+
+          <rect x="340" y="40" width="140" height="50" rx="4" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+          <text x="410" y="62" text-anchor="middle" font-size="12" fill="#14532d">扣除剩余课时</text>
+          <text x="410" y="78" text-anchor="middle" font-size="10" fill="#14532d">计算本次费用</text>
+
+          <rect x="340" y="140" width="140" height="50" rx="4" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+          <text x="410" y="162" text-anchor="middle" font-size="12" fill="#7f1d1d">生成支出待办</text>
+          <text x="410" y="178" text-anchor="middle" font-size="10" fill="#7f1d1d">推送财务系统</text>
+
+          <rect x="540" y="140" width="120" height="50" rx="4" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="2"/>
+          <text x="600" y="162" text-anchor="middle" font-size="12" fill="#4c1d95">财务确认支出</text>
+          <text x="600" y="178" text-anchor="middle" font-size="10" fill="#4c1d95">支付并回写</text>
+
+          <rect x="720" y="90" width="140" height="50" rx="4" fill="#f3f4f6" stroke="#4b5563" stroke-width="2"/>
+          <text x="790" y="112" text-anchor="middle" font-size="12" fill="#1f2937">上课明细锁定</text>
+          <text x="790" y="128" text-anchor="middle" font-size="10" fill="#1f2937">不可再编辑</text>
+
+          <line x1="140" y1="115" x2="180" y2="115" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="175,110 180,115 175,120" fill="#6b7280"/>
+
+          <line x1="300" y1="110" x2="330" y2="75" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="325,73 330,75 328,80" fill="#6b7280"/>
+
+          <line x1="300" y1="120" x2="330" y2="155" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="328,160 330,155 335,157" fill="#6b7280"/>
+
+          <line x1="480" y1="165" x2="540" y2="165" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="535,160 540,165 535,170" fill="#6b7280"/>
+
+          <line x1="660" y1="150" x2="720" y2="120" stroke="#6b7280" stroke-width="1.5"/>
+          <polygon points="718,118 720,120 716,124" fill="#6b7280"/>
+        </svg>
+      </div>
+
+      <h3 class="subsection-title">5.3 锁定与状态规则</h3>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+        <li><strong>未确认：</strong>上课明细 <code>finance_status = pending</code>，具有编辑权限的角色可修改、删除。</li>
+        <li><strong>已确认：</strong>财务支出确认后 <code>finance_status = confirmed</code>，<code>locked = true</code>，前端表单置灰，后端拒绝更新/删除。</li>
+        <li><strong>纠错：</strong>已锁定记录需要走“冲正/退款”流程，新增一条负数或调整流水，而不是直接修改原记录。</li>
+        <li><strong>套餐状态自动判断：</strong>剩余课时 = 0 时自动置为“结束”；剩余课时 > 0 且有上课记录置为“上课中”；剩余课时 > 0 且无上课记录置为“未约课”。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="section-title">6. 财务系统联动接口</h2>
+      <table>
+        <thead>
+          <tr><th>事件</th><th>调用方向</th><th>接口/消息</th><th>关键字段</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>充值登记</td>
+            <td>辅导系统 → 财务系统</td>
+            <td><code>POST /finance/income</code></td>
+            <td>customer_id, amount, package_id, transaction_id, type=tutoring_recharge</td>
+          </tr>
+          <tr>
+            <td>上课登记</td>
+            <td>辅导系统 → 财务系统</td>
+            <td><code>POST /finance/expense-todo</code></td>
+            <td>teacher_id, amount, package_id, transaction_id, due_date</td>
+          </tr>
+          <tr>
+            <td>财务确认支出</td>
+            <td>财务系统 → 辅导系统</td>
+            <td><code>POST /tutoring/confirm-expense</code> 或 Webhook</td>
+            <td>transaction_id, status=confirmed, confirmed_by, confirmed_at</td>
+          </tr>
+          <tr>
+            <td>财务驳回/撤销</td>
+            <td>财务系统 → 辅导系统</td>
+            <td><code>POST /tutoring/reverse-expense</code></td>
+            <td>transaction_id, reason, 解除锁定或生成冲正</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="text-sm mt-2 text-gray-600"><strong>幂等性：</strong>所有跨系统调用携带 <code>idempotency_key</code>，基于 <code>transaction_id</code> 去重，避免网络抖动导致重复记账。</p>
+      <p class="text-sm mt-2 text-gray-600"><strong>无标准接口文档的对接策略：</strong>财务系统暂无标准接口，建议先与财务方约定最小契约（上述四类事件 + 关键字段），可选两种落地方案：① 辅导系统主动推送 + 财务系统提供回调 Webhook；② 若财务系统不支持回调，辅导系统按 <code>transaction_id</code> 轮询确认结果。建议以消息队列 + 幂等表保证最终一致性。</p>
+    </section>
+
+    <section>
+      <h2 class="section-title">7. UI 关键界面</h2>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+        <li><strong>登录页：</strong>参考 Orderlist 风格：居中白色卡片，顶部欢迎标题，用户名/密码输入框（带图标），绿色 Login 按钮，校验后进入系统。</li>
+        <li><strong>辅导套餐总览页：</strong>表格字段见截图 1：学校、第一次充值、最近上课、客户、顾问、累计充值、累计上课、剩余课时、状态、明细、Tag。支持按客户/顾问/日期筛选。</li>
+        <li><strong>明细页：</strong>展示单个套餐下所有 Transaction。同一行要么是充值（充值金额 + 课时数为正，红色字体），要么是上课记录（上课老师 + 课时数为负/消耗）。底部汇总：总课时数、总费用。</li>
+        <li><strong>新增流水弹窗：</strong>二选一模式：选择“充值”则显示充值金额、课时数；选择“上课”则显示老师、课时数、Rate、本次费用自动计算。Course Code、Order Name/上课 Link、备注共用。</li>
+        <li><strong>财务待办页（财务角色）：</strong>列出所有 <code>finance_status=pending</code> 的上课支出，支持批量确认。</li>
+        <li><strong>总管理员页：</strong>用户管理（新增/编辑/删除/设密码）、数据管理（套餐与流水修改/删除）、权限说明矩阵。仅 Admin 可见。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="section-title">8. 技术方案建议</h2>
+      <table>
+        <thead>
+          <tr><th>层级</th><th>建议技术</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>前端</td><td>React / Next.js + Tailwind CSS + shadcn/ui 或 Ant Design</td><td>表格复杂，建议使用成熟的 Table + Form 组件库</td></tr>
+          <tr><td>后端</td><td>Node.js / NestJS 或 Python / FastAPI</td><td>REST API + Webhook 处理财务回写</td></tr>
+          <tr><td>数据库</td><td>PostgreSQL</td><td>支持 JSONB 扩展 Tag、事务保证课时扣减与财务记录一致性</td></tr>
+          <tr><td>权限</td><td>RBAC（角色 + 数据范围）</td><td>行级过滤：教务老师仅 order_type=tutoring</td></tr>
+          <tr><td>财务集成</td><td>REST/Webhook + 消息队列</td><td>使用队列保证最终一致性，失败可重试</td></tr>
+          <tr><td>部署</td><td>Vercel / 自建服务器 / Docker</td><td>根据现有基础设施选择</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 class="section-title">9. 已确认决策</h2>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+        <li>充值金额为选填项，可为 0；充值课时数为必填。</li>
+        <li>上课老师 Rate 为固定值，维护在老师档案中，选择老师后自动带出，无需每次手填。</li>
+        <li>财务系统暂无标准接口文档，需与财务方约定最小契约，采用 Webhook 回调或轮询确认。</li>
+        <li>“结束”状态由系统自动判断：剩余课时 = 0 即自动结束。</li>
+      </ul>
+      <ul class="list-disc pl-5 space-y-1 text-sm leading-relaxed mt-3 text-gray-500">
+        <li>仍可细化：老师档案维护入口、财务确认页字段、派单系统过滤实现层级（前端/后端）等。</li>
+      </ul>
+    </section>
+
+    <footer class="mt-12 pt-6 border-t text-sm text-gray-500">
+      本设计基于 2026-08-19 需求沟通整理，后续可依据确认事项细化数据库字段与接口契约。
+    </footer>
+  </main>
+</body>
+</html>

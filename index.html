@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>辅导课程管理系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .nav-item.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+    .recharge-hours { color: #dc2626; font-weight: 600; }
+    .tag { display: inline-flex; align-items: center; padding: .125rem .5rem; border-radius: 9999px; font-size: .75rem; font-weight: 500; }
+    .tag-active { background: #dcfce7; color: #166534; }
+    .tag-no-book { background: #fef9c3; color: #854d0e; }
+    .tag-ended { background: #f3f4f6; color: #374151; }
+    .tag-pending { background: #fef9c3; color: #854d0e; }
+    .tag-confirmed { background: #dcfce7; color: #166534; }
+    .locked { background: #f9fafb; color: #9ca3af; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .admin-nav { background: #faf5ff; color: #6b21a8; }
+    .admin-nav.active { background: #f3e8ff; color: #7e22ce; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <div id="app"></div>
+
+  <script>
+    /* ====================== 角色与权限 ====================== */
+    const roles = {
+      sales: { label: '销售', canEdit: false, canConfirm: false, canManageTeachers: false, viewFinance: false, viewTeachers: false, viewOrders: 'non_tutoring' },
+      sales_manager: { label: '销售主管', canEdit: false, canConfirm: false, canManageTeachers: false, viewFinance: true, viewTeachers: true, viewOrders: 'non_tutoring' },
+      dispatcher: { label: '派单助理', canEdit: false, canConfirm: false, canManageTeachers: false, viewFinance: false, viewTeachers: false, viewOrders: 'non_tutoring' },
+      tutor: { label: '助教老师', canEdit: true, canConfirm: false, canManageTeachers: false, viewFinance: true, viewTeachers: true, viewOrders: false },
+      linda: { label: 'Linda', canEdit: true, canConfirm: false, canManageTeachers: true, viewFinance: true, viewTeachers: true, viewOrders: false },
+      academic_affairs: { label: '教务老师', canEdit: true, canConfirm: false, canManageTeachers: false, viewFinance: true, viewTeachers: true, viewOrders: 'tutoring_only' },
+      finance: { label: '财务', canEdit: false, canConfirm: true, canManageTeachers: false, viewFinance: true, viewTeachers: false, viewOrders: false },
+      admin: { label: '系统管理员', canEdit: true, canConfirm: true, canManageTeachers: true, viewFinance: true, viewTeachers: true, viewOrders: 'all', isAdmin: true }
+    };
+
+    // 初始用户数据；Admin 用户名/密码为 Admin / dan8008
+    let users = [
+      { id: 'admin', name: 'Admin', username: 'Admin', role: 'admin', password: 'dan8008' },
+      { id: 'u1', name: 'Linda', username: 'Linda', role: 'linda', password: 'linda' },
+      { id: 'u2', name: '王老师', username: '王老师', role: 'tutor', password: 'tutor' },
+      { id: 'u3', name: '教务张老师', username: '教务张老师', role: 'academic_affairs', password: 'edu' },
+      { id: 'u4', name: 'Alex', username: 'Alex', role: 'sales', password: 'sales' },
+      { id: 'u5', name: 'cici', username: 'cici', role: 'sales_manager', password: 'cici' },
+      { id: 'u6', name: 'Tom', username: 'Tom', role: 'dispatcher', password: 'dispatch' },
+      { id: 'u7', name: 'Lisa', username: 'Lisa', role: 'finance', password: 'finance' }
+    ];
+
+    /* ====================== 模拟数据 ====================== */
+    const teachers = {
+      t1: { name: '王老师', rate: 100, active: true },
+      t2: { name: '李老师', rate: 120, active: true },
+      t3: { name: '张老师', rate: 90, active: true }
+    };
+
+    let state = {
+      currentUser: null,
+      view: 'dashboard',
+      selectedPackageId: null,
+      filter: { customer: '', consultant: '', status: '' },
+      adminEditUserId: null,
+      loginError: '',
+      packages: [
+        { id: 1, customer: 'ruru', consultant: 'cici', school: 'UNSW', firstRecharge: '2026-06-01', lastClass: '2026-07-30', tags: '' },
+        { id: 2, customer: 'tom', consultant: 'cici', school: 'USYD', firstRecharge: '2026-07-10', lastClass: '', tags: '新生' },
+        { id: 3, customer: 'lucy', consultant: 'alex', school: 'UMelb', firstRecharge: '2026-05-20', lastClass: '2026-07-25', tags: '' }
+      ],
+      transactions: [
+        { id: 101, packageId: 1, type: 'recharge', date: '2026-06-01', rechargeAmount: 2000, rechargeHours: 20, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'MATH3821', orderName: 'MATH3821-20h', classLink: '', notes: '首次充值', financeStatus: 'confirmed', locked: true, createdBy: 'Linda' },
+        { id: 102, packageId: 1, type: 'class', date: '2026-06-05', rechargeAmount: 0, rechargeHours: 0, teacherId: 't1', hours: 2, rate: 100, cost: 200, courseCode: 'MATH3821', orderName: '', classLink: 'https://meet.example/102', notes: '', financeStatus: 'confirmed', locked: true, createdBy: '王老师' },
+        { id: 103, packageId: 1, type: 'class', date: '2026-07-30', rechargeAmount: 0, rechargeHours: 0, teacherId: 't2', hours: 1.5, rate: 120, cost: 180, courseCode: 'MATH3821', orderName: '', classLink: 'https://meet.example/103', notes: '补课', financeStatus: 'pending', locked: false, createdBy: '王老师' },
+        { id: 201, packageId: 2, type: 'recharge', date: '2026-07-10', rechargeAmount: 1500, rechargeHours: 15, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'ECON2300', orderName: 'ECON2300-15h', classLink: '', notes: '', financeStatus: 'confirmed', locked: true, createdBy: '教务张老师' },
+        { id: 301, packageId: 3, type: 'recharge', date: '2026-05-20', rechargeAmount: 1200, rechargeHours: 10, teacherId: null, hours: 0, rate: 0, cost: 0, courseCode: 'ELEC2133', orderName: 'ELEC2133-10h', classLink: '', notes: '', financeStatus: 'confirmed', locked: true, createdBy: 'Linda' },
+        { id: 302, packageId: 3, type: 'class', date: '2026-07-25', rechargeAmount: 0, rechargeHours: 0, teacherId: 't3', hours: 10, rate: 90, cost: 900, courseCode: 'ELEC2133', orderName: '', classLink: 'https://meet.example/302', notes: '课时用完', financeStatus: 'confirmed', locked: true, createdBy: '王老师' }
+      ],
+      orders: [
+        { id: 'O-1001', orderType: 'tutoring', customer: 'ruru', sales: 'Alex', writer: '-', status: '上课中', packageId: 1 },
+        { id: 'O-1002', orderType: 'tutoring', customer: 'tom', sales: 'Alex', writer: '-', status: '未约课', packageId: 2 },
+        { id: 'O-1003', orderType: 'tutoring', customer: 'lucy', sales: 'cici', writer: '-', status: '结束', packageId: 3 },
+        { id: 'O-2001', orderType: 'writing', customer: 'jerry', sales: 'Alex', writer: 'Writer A', status: '进行中', packageId: null },
+        { id: 'O-2002', orderType: 'editing', customer: 'anna', sales: 'cici', writer: 'Writer B', status: '已完成', packageId: null }
+      ]
+    };
+
+    /* ====================== 工具函数 ====================== */
+    function packageTotals(pid) {
+      const txs = state.transactions.filter(t => t.packageId === pid);
+      const recharged = txs.filter(t => t.type === 'recharge').reduce((s, t) => s + (parseFloat(t.rechargeHours) || 0), 0);
+      const consumed = txs.filter(t => t.type === 'class').reduce((s, t) => s + (parseFloat(t.hours) || 0), 0);
+      const cost = txs.filter(t => t.type === 'class').reduce((s, t) => s + (parseFloat(t.cost) || 0), 0);
+      return { recharged, consumed, remaining: recharged - consumed, cost };
+    }
+
+    function packageStatus(pid) {
+      const t = packageTotals(pid);
+      if (t.remaining <= 0) return '结束';
+      if (t.consumed > 0) return '上课中';
+      return '未约课';
+    }
+
+    function statusClass(status) {
+      if (status === '上课中') return 'tag-active';
+      if (status === '未约课') return 'tag-no-book';
+      return 'tag-ended';
+    }
+
+    function financeClass(status) {
+      return status === 'confirmed' ? 'tag-confirmed' : 'tag-pending';
+    }
+
+    function financeLabel(status) {
+      return status === 'confirmed' ? '已确认' : '待确认';
+    }
+
+    function isAdmin() { return state.currentUser && roles[state.currentUser.role].isAdmin; }
+    function canEdit() { return roles[state.currentUser.role].canEdit || isAdmin(); }
+    function canConfirm() { return roles[state.currentUser.role].canConfirm || isAdmin(); }
+    function canManageTeachers() { return roles[state.currentUser.role].canManageTeachers || isAdmin(); }
+
+    function pendingExpenses() {
+      return state.transactions.filter(t => t.type === 'class' && t.financeStatus === 'pending');
+    }
+
+    /* ====================== 登录/布局 ====================== */
+    function login() {
+      const username = document.getElementById('loginUsername')?.value.trim() || '';
+      const password = document.getElementById('loginPassword')?.value || '';
+      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+      if (!user || user.password !== password) {
+        state.loginError = '用户名或密码错误';
+        render();
+        return;
+      }
+      state.currentUser = user;
+      state.view = 'dashboard';
+      state.loginError = '';
+      render();
+    }
+
+    function logout() {
+      state.currentUser = null;
+      state.view = 'dashboard';
+      state.loginError = '';
+      render();
+    }
+
+    function navItems() {
+      const r = roles[state.currentUser.role];
+      const items = [{ key: 'dashboard', label: '工作台' }];
+      items.push({ key: 'packages', label: '辅导套餐' });
+      if (r.viewFinance) items.push({ key: 'finance', label: '财务支出' });
+      if (r.viewTeachers) items.push({ key: 'teachers', label: '老师档案' });
+      if (r.viewOrders) items.push({ key: 'orders', label: r.viewOrders === 'tutoring_only' ? '辅导订单' : (r.viewOrders === 'all' ? '订单管理' : '订单（派单）') });
+      if (isAdmin()) {
+        items.push({ key: 'admin_users', label: '用户管理', admin: true });
+        items.push({ key: 'admin_data', label: '数据管理', admin: true });
+        items.push({ key: 'permissions', label: '权限说明', admin: true });
+      }
+      return items;
+    }
+
+    function setView(view, pid) {
+      state.view = view;
+      if (pid) state.selectedPackageId = pid;
+      render();
+    }
+
+    /* ====================== 渲染入口 ====================== */
+    function render() {
+      const app = document.getElementById('app');
+      if (!state.currentUser) { app.innerHTML = renderLogin(); return; }
+      app.innerHTML = renderLayout();
+      const content = document.getElementById('content');
+      if (state.view === 'dashboard') renderDashboard(content);
+      else if (state.view === 'packages') renderPackages(content);
+      else if (state.view === 'detail') renderDetail(content, state.selectedPackageId);
+      else if (state.view === 'finance') renderFinance(content);
+      else if (state.view === 'teachers') renderTeachers(content);
+      else if (state.view === 'orders') renderOrders(content);
+      else if (state.view === 'permissions') renderPermissions(content);
+      else if (state.view === 'admin_users') renderAdminUsers(content);
+      else if (state.view === 'admin_data') renderAdminData(content);
+    }
+
+    function renderLogin() {
+      return `
+        <div class="min-h-screen flex items-center justify-center bg-gray-100">
+          <div class="w-full max-w-md">
+            <div class="bg-white p-10 shadow-sm">
+              <h1 class="text-3xl font-light text-center text-gray-900 mb-10">稿多多辅导课程系统</h1>
+              <div class="space-y-5">
+                <div class="border border-gray-300 px-3 py-3 flex items-center">
+                  <svg class="w-5 h-5 text-gray-300 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                  <input id="loginUsername" type="text" placeholder="username" class="flex-1 outline-none text-sm text-gray-700" onkeydown="if(event.key==='Enter')login()">
+                </div>
+                <div class="border border-gray-300 px-3 py-3 flex items-center">
+                  <svg class="w-5 h-5 text-gray-300 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  <input id="loginPassword" type="password" placeholder="password" class="flex-1 outline-none text-sm text-gray-700" onkeydown="if(event.key==='Enter')login()">
+                </div>
+                ${state.loginError ? `<div class="text-red-600 text-sm">${state.loginError}</div>` : ''}
+                <button onclick="login()" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium py-3 mt-2">Login</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function renderLayout() {
+      const u = state.currentUser;
+      const r = roles[u.role];
+      let nav = '';
+      navItems().forEach(item => {
+        const activeClass = item.admin ? 'admin-nav' : 'nav-item';
+        nav += `<button onclick="setView('${item.key}')" class="${activeClass} w-full text-left px-4 py-2 rounded-lg text-sm ${state.view === item.key ? 'active' : 'hover:bg-gray-100'}">${item.label}</button>`;
+      });
+      return `
+        <div class="h-screen flex">
+          <aside class="w-60 bg-white border-r flex flex-col">
+            <div class="p-5 border-b">
+              <h1 class="text-base font-bold text-gray-900">辅导课管理</h1>
+              <p class="text-xs text-gray-500 mt-1">多角色协作系统</p>
+            </div>
+            <nav class="flex-1 p-3 space-y-1 overflow-auto">${nav}</nav>
+            <div class="p-4 border-t">
+              <div class="text-sm font-medium text-gray-900">${u.name}</div>
+              <div class="text-xs text-gray-500">${r.label}${isAdmin() ? ' · 最高权限' : ''}</div>
+              <button onclick="logout()" class="mt-2 text-xs text-gray-500 hover:text-gray-900">退出登录</button>
+            </div>
+          </aside>
+          <main class="flex-1 flex flex-col min-w-0">
+            <header class="h-14 bg-white border-b flex items-center justify-between px-6">
+              <h2 id="pageTitle" class="font-semibold text-gray-900">${pageTitle()}</h2>
+              <div class="text-sm text-gray-500">${r.label}${r.canEdit ? ' · 可编辑' : ''}${r.canConfirm ? ' · 可确认支出' : ''}${isAdmin() ? ' · 可管理用户/数据' : ''}</div>
+            </header>
+            <div id="content" class="flex-1 overflow-auto p-6 bg-gray-50"></div>
+          </main>
+        </div>`;
+    }
+
+    function pageTitle() {
+      const map = { dashboard: '工作台', packages: '辅导套餐', detail: '套餐明细', finance: '财务支出', teachers: '老师档案', orders: '订单管理', permissions: '权限说明', admin_users: '用户管理', admin_data: '数据管理' };
+      return map[state.view] || '';
+    }
+
+    /* ====================== 工作台 ====================== */
+    function renderDashboard(c) {
+      const pkgCount = state.packages.length;
+      const pending = pendingExpenses().length;
+      const monthRecharge = state.transactions.filter(t => t.type === 'recharge' && t.date.startsWith('2026-07')).reduce((s, t) => s + (parseFloat(t.rechargeHours) || 0), 0);
+      const monthClass = state.transactions.filter(t => t.type === 'class' && t.date.startsWith('2026-07')).reduce((s, t) => s + (parseFloat(t.hours) || 0), 0);
+      const recent = [...state.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+
+      let cards = `
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="card p-4"><div class="text-xs text-gray-500">辅导套餐</div><div class="text-2xl font-bold mt-1">${pkgCount}</div></div>
+          <div class="card p-4"><div class="text-xs text-gray-500">待确认支出</div><div class="text-2xl font-bold mt-1 ${pending ? 'text-amber-600' : 'text-gray-900'}">${pending}</div></div>
+          <div class="card p-4"><div class="text-xs text-gray-500">7月充值课时</div><div class="text-2xl font-bold mt-1">${monthRecharge}</div></div>
+          <div class="card p-4"><div class="text-xs text-gray-500">7月上课课时</div><div class="text-2xl font-bold mt-1">${monthClass}</div></div>
+        </div>`;
+
+      let recentRows = recent.map(tx => {
+        const p = state.packages.find(x => x.id === tx.packageId);
+        const typeLabel = tx.type === 'recharge' ? '充值' : '上课';
+        return `<tr class="border-b">
+          <td class="px-3 py-2">${tx.date}</td>
+          <td class="px-3 py-2">${p ? p.customer : '-'}</td>
+          <td class="px-3 py-2">${typeLabel}</td>
+          <td class="px-3 py-2">${tx.type === 'recharge' ? '<span class="recharge-hours">+' + tx.rechargeHours + '</span>' : tx.hours}</td>
+          <td class="px-3 py-2"><span class="tag ${financeClass(tx.financeStatus)}">${financeLabel(tx.financeStatus)}</span></td>
+        </tr>`;
+      }).join('');
+
+      let pendingSection = '';
+      if (pending > 0) {
+        pendingSection = `
+          <div class="card p-4 mb-6">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold text-gray-900">待确认支出</h3>
+              ${canConfirm() ? `<button onclick="setView('finance')" class="text-sm text-blue-600 hover:underline">前往确认</button>` : `<span class="text-sm text-gray-400">需财务确认</span>`}
+            </div>
+            <p class="text-sm text-gray-500">有 ${pending} 条上课明细等待财务确认支出，确认后将自动锁定。</p>
+          </div>`;
+      }
+
+      c.innerHTML = `${cards}${pendingSection}
+        <div class="card p-4">
+          <h3 class="font-semibold text-gray-900 mb-2">最近流水</h3>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-600"><tr><th class="px-3 py-2 text-left">日期</th><th class="px-3 py-2 text-left">客户</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">课时</th><th class="px-3 py-2 text-left">财务</th></tr></thead>
+            <tbody>${recentRows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    /* ====================== 辅导套餐 ====================== */
+    function renderPackages(c) {
+      let rows = state.packages;
+      if (state.filter.customer) rows = rows.filter(p => p.customer.includes(state.filter.customer));
+      if (state.filter.consultant) rows = rows.filter(p => p.consultant.includes(state.filter.consultant));
+      if (state.filter.status) rows = rows.filter(p => packageStatus(p.id) === state.filter.status);
+
+      const addBtn = isAdmin() ? `<button onclick="setView('admin_data')" class="px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">数据管理</button>` : '';
+
+      let body = rows.map(p => {
+        const t = packageTotals(p.id);
+        const status = packageStatus(p.id);
+        return `<tr class="hover:bg-gray-50">
+          <td class="px-4 py-3">${p.school}</td>
+          <td class="px-4 py-3">${p.firstRecharge}</td>
+          <td class="px-4 py-3">${p.lastClass || '-'}</td>
+          <td class="px-4 py-3 font-medium">${p.customer}</td>
+          <td class="px-4 py-3">${p.consultant}</td>
+          <td class="px-4 py-3">${t.recharged}</td>
+          <td class="px-4 py-3">${t.consumed}</td>
+          <td class="px-4 py-3 font-semibold ${t.remaining > 0 ? 'text-gray-900' : 'text-red-600'}">${t.remaining}</td>
+          <td class="px-4 py-3"><span class="tag ${statusClass(status)}">${status}</span></td>
+          <td class="px-4 py-3 text-gray-500">${p.tags || '-'}</td>
+          <td class="px-4 py-3"><button onclick="setView('detail', ${p.id})" class="text-blue-600 hover:underline text-sm">明细</button></td>
+        </tr>`;
+      }).join('');
+
+      c.innerHTML = `
+        <div class="card p-4 mb-4">
+          <div class="flex flex-wrap items-end gap-4">
+            <div><label class="block text-xs text-gray-500 mb-1">客户</label><input type="text" value="${state.filter.customer}" oninput="updateFilter('customer', this.value)" class="border rounded px-2 py-1 text-sm" placeholder="搜索客户"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">顾问</label><input type="text" value="${state.filter.consultant}" oninput="updateFilter('consultant', this.value)" class="border rounded px-2 py-1 text-sm" placeholder="搜索顾问"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">状态</label>
+              <select onchange="updateFilter('status', this.value)" class="border rounded px-2 py-1 text-sm">
+                <option value="">全部</option>
+                <option value="上课中" ${state.filter.status === '上课中' ? 'selected' : ''}>上课中</option>
+                <option value="未约课" ${state.filter.status === '未约课' ? 'selected' : ''}>未约课</option>
+                <option value="结束" ${state.filter.status === '结束' ? 'selected' : ''}>结束</option>
+              </select>
+            </div>
+            <div class="flex-1"></div>
+            ${addBtn}
+          </div>
+        </div>
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr>
+              <th class="px-4 py-3 text-left">学校</th><th class="px-4 py-3 text-left">第一次充值</th><th class="px-4 py-3 text-left">最近上课</th><th class="px-4 py-3 text-left">客户</th><th class="px-4 py-3 text-left">顾问</th><th class="px-4 py-3 text-left">累计充值</th><th class="px-4 py-3 text-left">累计上课</th><th class="px-4 py-3 text-left">剩余课时</th><th class="px-4 py-3 text-left">状态</th><th class="px-4 py-3 text-left">Tag</th><th class="px-4 py-3 text-left">操作</th>
+            </tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function updateFilter(key, value) { state.filter[key] = value; render(); }
+
+    /* ====================== 套餐明细 ====================== */
+    function renderDetail(c, pid) {
+      const p = state.packages.find(x => x.id === pid);
+      if (!p) { setView('packages'); return; }
+      const t = packageTotals(pid);
+      const txs = state.transactions.filter(x => x.packageId === pid).sort((a, b) => a.date.localeCompare(b.date));
+
+      let form = canEdit() ? renderAddForm(pid) : '<div class="card p-4 mb-6 text-sm text-gray-500">当前角色无编辑权限，仅可查看明细。</div>';
+
+      let running = 0;
+      let body = txs.map(tx => {
+        if (tx.type === 'recharge') running += parseFloat(tx.rechargeHours) || 0;
+        else running -= parseFloat(tx.hours) || 0;
+        const typeLabel = tx.type === 'recharge' ? '充值' : '上课';
+        const hoursDisplay = tx.type === 'recharge' ? `<span class="recharge-hours">+${tx.rechargeHours}</span>` : `-${tx.hours}`;
+        const teacherDisplay = tx.teacherId ? (teachers[tx.teacherId]?.name || tx.teacherId) : '-';
+        const adminActions = isAdmin() ? `<button onclick="deleteTransaction(${tx.id})" class="text-red-600 hover:underline text-xs ml-2">删除</button>` : '';
+        return `<tr class="${tx.locked ? 'locked' : ''}">
+          <td class="px-3 py-2">${p.consultant}</td>
+          <td class="px-3 py-2">${p.customer}</td>
+          <td class="px-3 py-2">${tx.date}</td>
+          <td class="px-3 py-2">${typeLabel}</td>
+          <td class="px-3 py-2">${tx.rechargeAmount ? '¥' + tx.rechargeAmount : '-'}</td>
+          <td class="px-3 py-2">${hoursDisplay}</td>
+          <td class="px-3 py-2">${teacherDisplay}</td>
+          <td class="px-3 py-2">${tx.rate || '-'}</td>
+          <td class="px-3 py-2">${tx.cost || '-'}</td>
+          <td class="px-3 py-2 font-medium">${running.toFixed(2)}</td>
+          <td class="px-3 py-2">${tx.courseCode || '-'}</td>
+          <td class="px-3 py-2 max-w-xs truncate" title="${tx.orderName || tx.classLink}">${tx.orderName || tx.classLink || '-'}</td>
+          <td class="px-3 py-2"><span class="tag ${financeClass(tx.financeStatus)}">${financeLabel(tx.financeStatus)}</span></td>
+          <td class="px-3 py-2">${tx.notes || '-'}</td>
+          <td class="px-3 py-2">${adminActions}</td>
+        </tr>`;
+      }).join('');
+
+      c.innerHTML = `
+        <div class="mb-4 flex items-center justify-between">
+          <button onclick="setView('packages')" class="text-sm text-gray-600 hover:text-gray-900">&larr; 返回套餐</button>
+          <div class="text-sm text-gray-600">剩余课时：<span class="font-bold text-lg text-gray-900">${t.remaining}</span> &nbsp; 累计充值：${t.recharged} &nbsp; 累计上课：${t.consumed}</div>
+        </div>
+        ${form}
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr>
+              <th class="px-3 py-2 text-left">顾问</th><th class="px-3 py-2 text-left">客户</th><th class="px-3 py-2 text-left">日期</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">充值金额</th><th class="px-3 py-2 text-left">课时数</th><th class="px-3 py-2 text-left">上课老师</th><th class="px-3 py-2 text-left">Rate</th><th class="px-3 py-2 text-left">本次费用</th><th class="px-3 py-2 text-left">剩余课时</th><th class="px-3 py-2 text-left">Course Code</th><th class="px-3 py-2 text-left">Order/Link</th><th class="px-3 py-2 text-left">财务</th><th class="px-3 py-2 text-left">备注</th><th class="px-3 py-2 text-left">操作</th>
+            </tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>
+        <div class="card p-4 mt-4 flex justify-end gap-8 text-sm">
+          <div>总课时数：<span class="font-semibold">${t.consumed}</span></div>
+          <div>总费用：<span class="font-semibold">¥${t.cost}</span></div>
+        </div>`;
+
+      toggleTxType(pid);
+    }
+
+    function deleteTransaction(txid) {
+      if (!isAdmin()) return;
+      const tx = state.transactions.find(t => t.id === txid);
+      if (!tx) return;
+      if (!confirm(`确定删除该条${tx.type === 'recharge' ? '充值' : '上课'}记录？此操作不可恢复。`)) return;
+      state.transactions = state.transactions.filter(t => t.id !== txid);
+      // 重新计算该套餐的 firstRecharge / lastClass
+      const pTxs = state.transactions.filter(t => t.packageId === tx.packageId);
+      const pkg = state.packages.find(p => p.id === tx.packageId);
+      const recharges = pTxs.filter(t => t.type === 'recharge');
+      const classes = pTxs.filter(t => t.type === 'class');
+      pkg.firstRecharge = recharges.length ? recharges.map(t => t.date).sort()[0] : '';
+      pkg.lastClass = classes.length ? classes.map(t => t.date).sort().reverse()[0] : '';
+      render();
+    }
+
+    function renderAddForm(pid) {
+      return `
+        <div class="card p-4 mb-6">
+          <h3 class="font-semibold text-gray-900 mb-3">新增流水</h3>
+          <form onsubmit="submitTransaction(event, ${pid})">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div><label class="block text-xs text-gray-500 mb-1">类型</label>
+                <select id="txType-${pid}" onchange="toggleTxType(${pid})" class="w-full border rounded px-2 py-1 text-sm">
+                  <option value="recharge">充值</option><option value="class">上课</option>
+                </select>
+              </div>
+              <div><label class="block text-xs text-gray-500 mb-1">日期</label><input type="date" id="txDate-${pid}" required class="w-full border rounded px-2 py-1 text-sm"></div>
+              <div><label class="block text-xs text-gray-500 mb-1">Course Code</label><input type="text" id="txCourse-${pid}" class="w-full border rounded px-2 py-1 text-sm"></div>
+              <div><label class="block text-xs text-gray-500 mb-1">Order Name / 上课 Link</label><input type="text" id="txLink-${pid}" class="w-full border rounded px-2 py-1 text-sm"></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div id="rechargeFields-${pid}">
+                <label class="block text-xs text-gray-500 mb-1">充值金额（¥，选填，可为 0）</label>
+                <input type="number" id="txAmount-${pid}" step="0.01" min="0" value="0" class="w-full border rounded px-2 py-1 text-sm">
+                <label class="block text-xs text-gray-500 mt-2 mb-1">充值课时数（必填）</label>
+                <input type="number" id="txRechargeHours-${pid}" step="0.01" required class="w-full border rounded px-2 py-1 text-sm text-red-600 font-semibold">
+              </div>
+              <div id="classFields-${pid}" class="hidden md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div><label class="block text-xs text-gray-500 mb-1">上课老师</label>
+                  <select id="txTeacher-${pid}" onchange="autoFillRate(${pid})" class="w-full border rounded px-2 py-1 text-sm">
+                    <option value="">选择老师</option>
+                    <option value="t1">王老师（¥100/h）</option>
+                    <option value="t2">李老师（¥120/h）</option>
+                    <option value="t3">张老师（¥90/h）</option>
+                  </select>
+                </div>
+                <div><label class="block text-xs text-gray-500 mb-1">课时数（小时）</label><input type="number" id="txHours-${pid}" step="0.01" oninput="calcCost(${pid})" class="w-full border rounded px-2 py-1 text-sm"></div>
+                <div><label class="block text-xs text-gray-500 mb-1">老师 Rate（固定，自动带出）</label><input type="number" id="txRate-${pid}" step="0.01" readonly class="w-full border rounded px-2 py-1 text-sm bg-gray-50"></div>
+                <div><label class="block text-xs text-gray-500 mb-1">本次费用（自动）</label><input type="number" id="txCost-${pid}" step="0.01" readonly class="w-full border rounded px-2 py-1 text-sm bg-gray-50"></div>
+              </div>
+            </div>
+            <div class="mb-4"><label class="block text-xs text-gray-500 mb-1">备注</label><input type="text" id="txNotes-${pid}" class="w-full border rounded px-2 py-1 text-sm"></div>
+            <div class="flex gap-2"><button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">保存</button><div id="txError-${pid}" class="text-red-600 text-sm self-center"></div></div>
+          </form>
+        </div>`;
+    }
+
+    function toggleTxType(pid) {
+      const type = document.getElementById(`txType-${pid}`)?.value || 'recharge';
+      const rf = document.getElementById(`rechargeFields-${pid}`);
+      const cf = document.getElementById(`classFields-${pid}`);
+      if (!rf || !cf) return;
+      if (type === 'recharge') {
+        rf.classList.remove('hidden'); cf.classList.add('hidden');
+        cf.querySelectorAll('input,select').forEach(el => el.removeAttribute('required'));
+      } else {
+        rf.classList.add('hidden'); cf.classList.remove('hidden');
+        cf.querySelectorAll('input,select').forEach(el => el.setAttribute('required', 'required'));
+        autoFillRate(pid);
+      }
+    }
+
+    function autoFillRate(pid) {
+      const teacherId = document.getElementById(`txTeacher-${pid}`)?.value;
+      const rateInput = document.getElementById(`txRate-${pid}`);
+      rateInput.value = teacherId && teachers[teacherId] ? teachers[teacherId].rate : '';
+      calcCost(pid);
+    }
+
+    function calcCost(pid) {
+      const h = parseFloat(document.getElementById(`txHours-${pid}`)?.value) || 0;
+      const r = parseFloat(document.getElementById(`txRate-${pid}`)?.value) || 0;
+      const costInput = document.getElementById(`txCost-${pid}`);
+      if (costInput) costInput.value = (h * r).toFixed(2);
+    }
+
+    function submitTransaction(e, pid) {
+      e.preventDefault();
+      const type = document.getElementById(`txType-${pid}`).value;
+      const date = document.getElementById(`txDate-${pid}`).value;
+      const courseCode = document.getElementById(`txCourse-${pid}`).value;
+      const link = document.getElementById(`txLink-${pid}`).value;
+      const notes = document.getElementById(`txNotes-${pid}`).value;
+      const errorEl = document.getElementById(`txError-${pid}`);
+      errorEl.textContent = '';
+      const p = state.packages.find(x => x.id === pid);
+      let tx = { id: Date.now(), packageId: pid, type, date, courseCode, orderName: '', classLink: '', notes, locked: false, createdBy: state.currentUser.name };
+
+      if (type === 'recharge') {
+        const amount = parseFloat(document.getElementById(`txAmount-${pid}`).value) || 0;
+        const hours = parseFloat(document.getElementById(`txRechargeHours-${pid}`).value);
+        if (!hours || hours <= 0) { errorEl.textContent = '请填写充值课时数'; return; }
+        Object.assign(tx, { rechargeAmount: amount, rechargeHours: hours, teacherId: null, hours: 0, rate: 0, cost: 0, financeStatus: 'confirmed', orderName: link });
+        if (!p.firstRecharge || date < p.firstRecharge) p.firstRecharge = date;
+      } else {
+        const teacherId = document.getElementById(`txTeacher-${pid}`).value;
+        const hours = parseFloat(document.getElementById(`txHours-${pid}`).value);
+        const rate = parseFloat(document.getElementById(`txRate-${pid}`).value) || (teachers[teacherId]?.rate || 0);
+        const cost = parseFloat(document.getElementById(`txCost-${pid}`).value) || (hours * rate);
+        if (!teacherId) { errorEl.textContent = '请选择上课老师'; return; }
+        if (!hours) { errorEl.textContent = '请填写课时数'; return; }
+        if (hours > packageTotals(pid).remaining) { errorEl.textContent = '剩余课时不足'; return; }
+        Object.assign(tx, { rechargeAmount: 0, rechargeHours: 0, teacherId, hours, rate, cost, financeStatus: 'pending', classLink: link });
+        p.lastClass = date;
+      }
+
+      state.transactions.push(tx);
+      render();
+    }
+
+    /* ====================== 财务支出 ====================== */
+    function renderFinance(c) {
+      const pending = pendingExpenses();
+      if (!pending.length) { c.innerHTML = '<div class="card p-6 text-gray-500">暂无可确认的支出待办。</div>'; return; }
+      let body = pending.map(tx => {
+        const p = state.packages.find(x => x.id === tx.packageId);
+        return `<tr>
+          <td class="px-4 py-3">${p.customer}</td>
+          <td class="px-4 py-3">${p.school}</td>
+          <td class="px-4 py-3">${tx.date}</td>
+          <td class="px-4 py-3">${teachers[tx.teacherId]?.name || tx.teacherId}</td>
+          <td class="px-4 py-3">${tx.hours}</td>
+          <td class="px-4 py-3">${tx.rate}</td>
+          <td class="px-4 py-3 font-semibold">¥${tx.cost}</td>
+          <td class="px-4 py-3">${tx.courseCode || '-'}</td>
+          <td class="px-4 py-3"><span class="tag tag-pending">待确认</span></td>
+          <td class="px-4 py-3">${canConfirm() ? `<button onclick="confirmExpense(${tx.id})" class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700">确认支出</button>` : '<span class="text-gray-400">无权限</span>'}</td>
+        </tr>`;
+      }).join('');
+      c.innerHTML = `
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr>
+              <th class="px-4 py-3 text-left">客户</th><th class="px-4 py-3 text-left">学校</th><th class="px-4 py-3 text-left">日期</th><th class="px-4 py-3 text-left">上课老师</th><th class="px-4 py-3 text-left">课时</th><th class="px-4 py-3 text-left">Rate</th><th class="px-4 py-3 text-left">本次费用</th><th class="px-4 py-3 text-left">Course Code</th><th class="px-4 py-3 text-left">状态</th><th class="px-4 py-3 text-left">操作</th>
+            </tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function confirmExpense(txid) {
+      const tx = state.transactions.find(t => t.id === txid);
+      if (!tx) return;
+      tx.financeStatus = 'confirmed';
+      tx.locked = true;
+      render();
+    }
+
+    /* ====================== 老师档案 ====================== */
+    function renderTeachers(c) {
+      let body = Object.entries(teachers).map(([id, t]) => `
+        <tr>
+          <td class="px-4 py-3">${t.name}</td>
+          <td class="px-4 py-3">¥${t.rate}/h</td>
+          <td class="px-4 py-3"><span class="tag ${t.active ? 'tag-active' : 'tag-ended'}">${t.active ? '在岗' : '停用'}</span></td>
+          <td class="px-4 py-3">${canManageTeachers() ? `<button onclick="editRate('${id}')" class="text-blue-600 hover:underline text-sm">修改 Rate</button>` : '<span class="text-gray-400">只读</span>'}</td>
+        </tr>`).join('');
+      c.innerHTML = `
+        <div class="card p-4 mb-4 text-sm text-gray-500">老师 Rate 为固定值，维护在老师档案中；上课选择老师后自动带出，不可在流水表中临时修改。</div>
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">老师</th><th class="px-4 py-3 text-left">固定 Rate</th><th class="px-4 py-3 text-left">状态</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function editRate(id) {
+      const input = prompt(`修改 ${teachers[id].name} 的固定 Rate（¥/h）`, teachers[id].rate);
+      if (input === null) return;
+      const val = parseFloat(input);
+      if (!val || val <= 0) { alert('请输入大于 0 的数字'); return; }
+      teachers[id].rate = val;
+      render();
+    }
+
+    /* ====================== 订单管理 ====================== */
+    function renderOrders(c) {
+      const r = roles[state.currentUser.role];
+      let orders, title, note;
+      if (r.viewOrders === 'all') {
+        orders = state.orders;
+        title = '订单管理';
+        note = '系统管理员可查看全部订单，包括辅导订单与其他类型订单。';
+      } else if (r.viewOrders === 'tutoring_only') {
+        orders = state.orders.filter(o => o.orderType === 'tutoring');
+        title = '辅导订单';
+        note = '教务老师仅可见 Order Type = 辅导 的订单，负责登记辅导信息。';
+      } else {
+        orders = state.orders.filter(o => o.orderType !== 'tutoring');
+        title = '订单（派单系统）';
+        note = '派单系统默认隐藏 Order Type = 辅导 的订单；辅导订单由教务老师在辅导系统登记。';
+      }
+      let body = orders.map(o => `<tr>
+        <td class="px-4 py-3">${o.id}</td>
+        <td class="px-4 py-3">${o.orderType}</td>
+        <td class="px-4 py-3">${o.customer}</td>
+        <td class="px-4 py-3">${o.sales}</td>
+        <td class="px-4 py-3">${o.writer}</td>
+        <td class="px-4 py-3">${o.status}</td>
+        <td class="px-4 py-3">${o.packageId ? `<button onclick="setView('detail', ${o.packageId})" class="text-blue-600 hover:underline text-sm">查看课时</button>` : '-'}</td>
+      </tr>`).join('');
+      c.innerHTML = `
+        <div class="card p-4 mb-4 text-sm text-gray-500">${note}</div>
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">订单号</th><th class="px-4 py-3 text-left">Order Type</th><th class="px-4 py-3 text-left">客户</th><th class="px-4 py-3 text-left">Sales</th><th class="px-4 py-3 text-left">Writer</th><th class="px-4 py-3 text-left">状态</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    /* ====================== 系统管理：用户管理 ====================== */
+    function renderAdminUsers(c) {
+      if (!isAdmin()) { setView('dashboard'); return; }
+      const editUser = state.adminEditUserId ? users.find(u => u.id === state.adminEditUserId) : null;
+
+      let formHtml = `
+        <div class="card p-4 mb-6">
+          <h3 class="font-semibold text-gray-900 mb-3">${editUser ? '编辑用户' : '新增用户'}</h3>
+          <form onsubmit="saveUser(event)">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div><label class="block text-xs text-gray-500 mb-1">显示名称</label><input type="text" id="userName" value="${editUser ? editUser.name : ''}" required class="w-full border rounded px-2 py-1 text-sm"></div>
+              <div><label class="block text-xs text-gray-500 mb-1">登录用户名</label><input type="text" id="userUsername" value="${editUser ? editUser.username : ''}" required class="w-full border rounded px-2 py-1 text-sm"></div>
+              <div><label class="block text-xs text-gray-500 mb-1">角色</label>
+                <select id="userRole" class="w-full border rounded px-2 py-1 text-sm">
+                  ${Object.entries(roles).map(([key, role]) => `<option value="${key}" ${editUser && editUser.role === key ? 'selected' : ''}>${role.label}</option>`).join('')}
+                </select>
+              </div>
+              <div><label class="block text-xs text-gray-500 mb-1">登录密码${editUser ? '（留空不修改）' : ''}</label><input type="password" id="userPassword" ${editUser ? '' : 'required'} class="w-full border rounded px-2 py-1 text-sm"></div>
+            </div>
+            <div class="flex gap-2">
+              <button type="submit" class="px-4 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">保存</button>
+              ${editUser ? `<button type="button" onclick="cancelEditUser()" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">取消</button>` : ''}
+            </div>
+            <div id="userFormError" class="text-red-600 text-sm mt-2"></div>
+          </form>
+        </div>`;
+
+      let rows = users.map(u => {
+        const r = roles[u.role];
+        const isSelf = u.id === state.currentUser.id;
+        return `<tr>
+          <td class="px-4 py-3">${u.name}</td>
+          <td class="px-4 py-3">${u.username}</td>
+          <td class="px-4 py-3">${r.label}</td>
+          <td class="px-4 py-3 text-gray-400">${isSelf ? '当前登录' : '●●●●●●'}</td>
+          <td class="px-4 py-3">
+            <button onclick="startEditUser('${u.id}')" class="text-blue-600 hover:underline text-sm">修改</button>
+            ${isSelf ? '' : `<button onclick="deleteUser('${u.id}')" class="text-red-600 hover:underline text-sm ml-3">删除</button>`}
+          </td>
+        </tr>`;
+      }).join('');
+
+      c.innerHTML = `${formHtml}
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">显示名称</th><th class="px-4 py-3 text-left">登录用户名</th><th class="px-4 py-3 text-left">角色</th><th class="px-4 py-3 text-left">密码</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
+            <tbody class="divide-y">${rows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function saveUser(e) {
+      e.preventDefault();
+      const name = document.getElementById('userName').value.trim();
+      const username = document.getElementById('userUsername').value.trim();
+      const role = document.getElementById('userRole').value;
+      const password = document.getElementById('userPassword').value;
+      const errorEl = document.getElementById('userFormError');
+      errorEl.textContent = '';
+      if (!name || !username) { errorEl.textContent = '请填写名称与用户名'; return; }
+      const exists = users.find(u => u.username.toLowerCase() === username.toLowerCase() && (!state.adminEditUserId || u.id !== state.adminEditUserId));
+      if (exists) { errorEl.textContent = '用户名已存在'; return; }
+      if (!state.adminEditUserId && !password) { errorEl.textContent = '新增用户必须设置密码'; return; }
+
+      if (state.adminEditUserId) {
+        const u = users.find(x => x.id === state.adminEditUserId);
+        u.name = name; u.username = username; u.role = role;
+        if (password) u.password = password;
+        // 如果修改的是当前登录用户自身，同步 currentUser
+        if (u.id === state.currentUser.id) state.currentUser = u;
+      } else {
+        users.push({ id: 'u' + Date.now(), name, username, role, password });
+      }
+      state.adminEditUserId = null;
+      render();
+    }
+
+    function startEditUser(id) {
+      state.adminEditUserId = id;
+      render();
+    }
+
+    function cancelEditUser() {
+      state.adminEditUserId = null;
+      render();
+    }
+
+    function deleteUser(id) {
+      if (!isAdmin()) return;
+      const u = users.find(x => x.id === id);
+      if (!u) return;
+      if (u.id === state.currentUser.id) { alert('不能删除当前登录账号'); return; }
+      if (!confirm(`确定删除用户「${u.name}（${u.username}）」？`)) return;
+      users = users.filter(x => x.id !== id);
+      render();
+    }
+
+    /* ====================== 系统管理：数据管理 ====================== */
+    function renderAdminData(c) {
+      if (!isAdmin()) { setView('dashboard'); return; }
+
+      // 辅导套餐管理
+      let pkgRows = state.packages.map(p => {
+        const t = packageTotals(p.id);
+        return `<tr>
+          <td class="px-4 py-3">${p.school}</td>
+          <td class="px-4 py-3">${p.customer}</td>
+          <td class="px-4 py-3">${p.consultant}</td>
+          <td class="px-4 py-3">${p.firstRecharge || '-'}</td>
+          <td class="px-4 py-3">${t.remaining}</td>
+          <td class="px-4 py-3">${p.tags || '-'}</td>
+          <td class="px-4 py-3">
+            <button onclick="editPackage(${p.id})" class="text-blue-600 hover:underline text-sm">修改</button>
+            <button onclick="deletePackage(${p.id})" class="text-red-600 hover:underline text-sm ml-3">删除</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      // 全部流水管理
+      let txRows = state.transactions.map(tx => {
+        const p = state.packages.find(x => x.id === tx.packageId);
+        const typeLabel = tx.type === 'recharge' ? '充值' : '上课';
+        return `<tr>
+          <td class="px-4 py-3">${tx.id}</td>
+          <td class="px-4 py-3">${p ? p.customer : '-'}</td>
+          <td class="px-4 py-3">${typeLabel}</td>
+          <td class="px-4 py-3">${tx.date}</td>
+          <td class="px-4 py-3">${tx.rechargeHours || tx.hours}</td>
+          <td class="px-4 py-3">${tx.courseCode || '-'}</td>
+          <td class="px-4 py-3"><span class="tag ${financeClass(tx.financeStatus)}">${financeLabel(tx.financeStatus)}</span></td>
+          <td class="px-4 py-3">
+            <button onclick="deleteTransaction(${tx.id})" class="text-red-600 hover:underline text-sm">删除</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      c.innerHTML = `
+        <div class="card p-4 mb-6">
+          <h3 class="font-semibold text-gray-900 mb-2">辅导套餐管理</h3>
+          <p class="text-sm text-gray-500 mb-3">可修改套餐基础信息、删除整个套餐及其关联流水。</p>
+          <div class="overflow-hidden border rounded">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">学校</th><th class="px-4 py-3 text-left">客户</th><th class="px-4 py-3 text-left">顾问</th><th class="px-4 py-3 text-left">首次充值</th><th class="px-4 py-3 text-left">剩余课时</th><th class="px-4 py-3 text-left">Tags</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
+              <tbody class="divide-y">${pkgRows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card p-4">
+          <h3 class="font-semibold text-gray-900 mb-2">全部流水管理</h3>
+          <p class="text-sm text-gray-500 mb-3">可删除任意充值或上课流水；删除后套餐的首次充值/最近上课会自动重算。</p>
+          <div class="overflow-hidden border rounded">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">ID</th><th class="px-4 py-3 text-left">客户</th><th class="px-4 py-3 text-left">类型</th><th class="px-4 py-3 text-left">日期</th><th class="px-4 py-3 text-left">课时</th><th class="px-4 py-3 text-left">Course</th><th class="px-4 py-3 text-left">财务</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
+              <tbody class="divide-y">${txRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
+    function editPackage(pid) {
+      const p = state.packages.find(x => x.id === pid);
+      if (!p) return;
+      const school = prompt('学校', p.school);
+      if (school === null) return;
+      const customer = prompt('客户', p.customer);
+      if (customer === null) return;
+      const consultant = prompt('顾问', p.consultant);
+      if (consultant === null) return;
+      const tags = prompt('Tags', p.tags);
+      if (tags === null) return;
+      p.school = school.trim();
+      p.customer = customer.trim();
+      p.consultant = consultant.trim();
+      p.tags = tags.trim();
+      render();
+    }
+
+    function deletePackage(pid) {
+      const p = state.packages.find(x => x.id === pid);
+      if (!p) return;
+      if (!confirm(`确定删除套餐「${p.customer} - ${p.school}」及其全部流水？`)) return;
+      state.packages = state.packages.filter(x => x.id !== pid);
+      state.transactions = state.transactions.filter(t => t.packageId !== pid);
+      state.orders.forEach(o => { if (o.packageId === pid) o.packageId = null; });
+      render();
+    }
+
+    /* ====================== 权限说明（仅管理员可见）====================== */
+    function renderPermissions(c) {
+      if (!isAdmin()) { setView('dashboard'); return; }
+      const matrix = [
+        ['销售', '全部', '只读', '不可见', '不可见', '非辅导订单'],
+        ['销售主管', '全部', '只读', '可见', '可见', '非辅导订单'],
+        ['派单助理', '全部', '只读', '不可见', '不可见', '非辅导订单'],
+        ['助教老师', '全部', '可编辑', '可见', '可见', '不可见'],
+        ['Linda', '全部', '可编辑', '可见', '可管理', '不可见'],
+        ['教务老师', '仅辅导订单', '可编辑', '可见', '可见', '仅辅导订单'],
+        ['财务', '财务待办', '只读', '可确认', '不可见', '不可见'],
+        ['系统管理员', '全部', '可编辑/删除', '可确认', '可管理', '全部']
+      ];
+      let body = matrix.map(row => `<tr>${row.map((cell, i) => `<td class="px-4 py-3 ${i === 0 ? 'font-medium' : ''}">${cell}</td>`).join('')}</tr>`).join('');
+      c.innerHTML = `
+        <div class="card p-4 mb-4 text-sm text-gray-500">仅系统管理员可查看此权限说明。普通用户登录后不可见「权限说明」入口。</div>
+        <div class="card overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left">角色</th><th class="px-4 py-3 text-left">可见范围</th><th class="px-4 py-3 text-left">辅导明细</th><th class="px-4 py-3 text-left">财务支出</th><th class="px-4 py-3 text-left">老师档案</th><th class="px-4 py-3 text-left">订单可见</th></tr></thead>
+            <tbody class="divide-y">${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    render();
+  </script>
+</body>
+</html>
